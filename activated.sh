@@ -15,7 +15,7 @@ install() {
     mkdir -p "$(dirname "${file}" 2>/dev/null)" 2>/dev/null
     STATUS="$(curl -skL -w "%{http_code}" "${url}" -o "${file}")"
     STATUS="${STATUS: -3}"
-    if [ "${STATUS}" != "200" ]; then
+    if ! echo "200 404" | grep -wq "${STATUS}"; then
       echo "Error: ${STATUS}, Failed to download ${url} from GitHub."
       exit 1
     fi
@@ -24,6 +24,10 @@ install() {
   _process_file() {
     local file="${1}" dest="${2}" suffix="${3}" mode="${4}"
     echo "Patch ${dest}"
+    [ ! -f "${file}" ] && {
+      echo "Warning: ${file} not exist, skip."
+      return 1
+    }
     [ ! -f "${dest}${suffix}" ] && cp -pf "${dest}" "${dest}${suffix}"
     cp -f "${file}" "${dest}"
     chown SurveillanceStation:SurveillanceStation "${dest}"
@@ -31,12 +35,12 @@ install() {
   }
 
   ISDL=false
-  if [ ! -d "${WORK_PATH}/${VERSION}/${ARCH}${SUFFIX}" ]; then
+  if [ ! -d "${WORK_PATH}/patch/${VERSION}/${SS_NAME}" ]; then
     REPO="${REPO:-"ohyeah521/Surveillance-Station"}"
     BRANCH="${BRANCH:-"main"}"
 
     # 检查版本是否存在
-    VERURL="https://github.com/${REPO}/tree/${BRANCH}/${VERSION}/${ARCH}${SUFFIX}"
+    VERURL="https://github.com/${REPO}/tree/${BRANCH}/patch/${VERSION}/${SS_NAME}"
     STATUS="$(curl -s -m 10 -connect-timeout 10 -w "%{http_code}" "${VERURL}" -o /dev/null 2>/dev/null)"
     STATUS="${STATUS: -3}"
     case "${STATUS}" in
@@ -56,9 +60,9 @@ install() {
     esac
 
     # 获取 patch 文件
-    URL_FIX="https://github.com/${REPO}/raw/${BRANCH}/${VERSION}/${ARCH}${SUFFIX}"
+    URL_FIX="https://github.com/${REPO}/raw/${BRANCH}/patch/${VERSION}/${SS_NAME}"
     for F in "${PATCH_FILES[@]}"; do
-      _get_files "${URL_FIX}/${F}" "${WORK_PATH}/${VERSION}/${ARCH}${SUFFIX}/${F}"
+      _get_files "${URL_FIX}/${F}" "${WORK_PATH}/patch/${VERSION}/${SS_NAME}/${F}"
     done
     ISDL=true
   fi
@@ -78,13 +82,13 @@ install() {
   SS_PATH="/var/packages/SurveillanceStation/target"
   _suffix="_backup"
   for F in "${PATCH_FILES[@]}"; do
-    _process_file "${WORK_PATH}/${VERSION}/${ARCH}${SUFFIX}/${F}" "${SS_PATH}/${F}" "${_suffix}" 0755
+    _process_file "${WORK_PATH}/patch/${VERSION}/${SS_NAME}/${F}" "${SS_PATH}/${F}" "${_suffix}" 0755
   done
 
   sleep 5
   /usr/syno/bin/synopkg start SurveillanceStation >/dev/null 2>&1
 
-  [ "${ISDL}" = true ] && rm -rf "${WORK_PATH:?}/${VERSION:?}"
+  [ "${ISDL}" = true ] && rm -rf "${WORK_PATH:?}/patch/${VERSION}/${SS_NAME}"
 }
 
 uninstall() {
@@ -146,24 +150,29 @@ fi
 ARCH="$(synogetkeyvalue /var/packages/SurveillanceStation/INFO arch)"
 SUFFIX=""
 case "$(synogetkeyvalue /var/packages/SurveillanceStation/INFO model)" in
-"synology_denverton_dva3219") SUFFIX="_dva_3219" ;;
-"synology_denverton_dva3221") SUFFIX="_dva_3221" ;;
+"synology_denverton_dva3219") SUFFIX="_DVA_3219" ;;
+"synology_denverton_dva3221") SUFFIX="_DVA_3221" ;;
 "synology_geminilake_dva1622") SUFFIX="_openvino" ;;
 *) ;;
 esac
 
+SS_NAME="SurveillanceStation-${ARCH}-${VERSION}${SUFFIX}"
+
 PATCH_FILES=(
   "lib/libssutils.so"
+  "bin/ssctl"
+  "sbin/ssactruled"
   "sbin/sscmshostd"
   "sbin/sscored"
   "sbin/ssdaemonmonitord"
   "sbin/ssexechelperd"
   "sbin/ssroutined"
   "sbin/ssmessaged"
-  # "sbin/ssrtmpclientd"
+  "sbin/ssrtmpclientd"
+  "webapi/Camera/src/SYNO.SurveillanceStation.Camera.so"
 )
 
-echo "Found SurveillanceStation-${ARCH}-${VERSION}${SUFFIX}"
+echo "Found ${SS_NAME}"
 
 case "${1}" in
 -r | --uninstall)
